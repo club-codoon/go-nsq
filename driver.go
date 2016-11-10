@@ -67,6 +67,34 @@ func NewDriver(consumerConfig, producerConfig *Config, consumerTopic, consumerCh
 	}
 }
 
+func NewProducerDriver(config *Config) *Driver {
+	return &Driver{
+		producerConfig: config,
+
+		logger:             log.New(os.Stderr, "", log.Flags()),
+		logLvl:             LogLevelInfo,
+		rng:                rand.New(rand.NewSource(time.Now().UnixNano())),
+		lookupdRecheckChan: make(chan int, 1),
+		exitChan:           make(chan int),
+	}
+}
+
+func NewConsumerDriver(consumerConfig *Config, consumerTopic, consumerChannel string, consumerHandler Handler, concurrency int) *Driver {
+	return &Driver{
+		consumerTopic:   consumerTopic,
+		consumerChannel: consumerChannel,
+		consumerConfig:  consumerConfig,
+		consumerHandler: consumerHandler,
+		concurrency:     concurrency,
+
+		logger:             log.New(os.Stderr, "", log.Flags()),
+		logLvl:             LogLevelInfo,
+		rng:                rand.New(rand.NewSource(time.Now().UnixNano())),
+		lookupdRecheckChan: make(chan int, 1),
+		exitChan:           make(chan int),
+	}
+}
+
 func (d *Driver) Consumers() []*Consumer {
 	return d.consumers
 }
@@ -333,6 +361,10 @@ func (d *Driver) updateConsumers(addrs []string) {
 	d.mtx.Lock()
 	defer d.mtx.Unlock()
 
+	if d.consumerConfig == nil {
+		return
+	}
+
 	for i := 0; i < len(d.addrs); i++ {
 		found := false
 		for _, addr := range addrs {
@@ -376,6 +408,10 @@ NSQDADDRS:
 func (d *Driver) updateProducers(addrs []string) {
 	d.mtx.Lock()
 	defer d.mtx.Unlock()
+
+	if d.producerConfig == nil {
+		return
+	}
 
 	for i := 0; i < len(d.producers); i++ {
 		found := false
