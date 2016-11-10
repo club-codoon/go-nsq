@@ -36,6 +36,9 @@ type Driver struct {
 	consumerConfig *Config
 	producerConfig *Config
 
+	consumerEnable bool
+	producerEnable bool
+
 	rngMtx sync.Mutex
 	rng    *rand.Rand
 
@@ -46,6 +49,8 @@ type Driver struct {
 	wg            sync.WaitGroup
 	stopFlag      int32
 	connectedFlag int32
+	stopHandler   sync.Once
+	exitHandler   sync.Once
 
 	exitChan chan int
 }
@@ -64,11 +69,15 @@ func NewDriver(consumerConfig, producerConfig *Config, consumerTopic, consumerCh
 		rng:                rand.New(rand.NewSource(time.Now().UnixNano())),
 		lookupdRecheckChan: make(chan int, 1),
 		exitChan:           make(chan int),
+
+		consumerEnable: true,
+		producerEnable: true,
 	}
 }
 
 func NewProducerDriver(config *Config) *Driver {
 	return &Driver{
+		consumerConfig: NewConfig(),
 		producerConfig: config,
 
 		logger:             log.New(os.Stderr, "", log.Flags()),
@@ -76,6 +85,9 @@ func NewProducerDriver(config *Config) *Driver {
 		rng:                rand.New(rand.NewSource(time.Now().UnixNano())),
 		lookupdRecheckChan: make(chan int, 1),
 		exitChan:           make(chan int),
+
+		consumerEnable: false,
+		producerEnable: true,
 	}
 }
 
@@ -92,6 +104,9 @@ func NewConsumerDriver(consumerConfig *Config, consumerTopic, consumerChannel st
 		rng:                rand.New(rand.NewSource(time.Now().UnixNano())),
 		lookupdRecheckChan: make(chan int, 1),
 		exitChan:           make(chan int),
+
+		consumerEnable: true,
+		producerEnable: false,
 	}
 }
 
@@ -188,6 +203,25 @@ func (d *Driver) Publish(topic string, body []byte) (err error) {
 		return nil
 	}
 	return fmt.Errorf("nsq publish failed after %v attempts - %v", d.producerConfig.MaxAttempts, err)
+}
+
+func (d *Driver) Stop() {
+	if !atomic.CompareAndSwapInt32(&d.stopFlag, 0, 1) {
+		return
+	}
+
+	d.exit()
+
+	for _, c := range d.consumers {
+		c.Stop()
+	}
+}
+
+func (r *Driver) exit() {
+	r.exitHandler.Do(func() {
+		close(r.exitChan)
+		r.wg.Wait()
+	})
 }
 
 // ConnectToNSQLookupd adds an nsqlookupd address to the list for this Driver instance.
@@ -316,17 +350,11 @@ func (d *Driver) nextLookupdEndpoint() (string, string) {
 //
 // initiate a connection to any new producers that are identified.
 func (d *Driver) queryLookupd() {
-	addr, endpoint := d.nextLookupdEndpoint()
-	remote_addr, _, err := net.SplitHostPort(addr)
-	if err != nil {
-		d.log(LogLevelError, "error lookupd addr - %s", addr)
-		return
-	}
-
+	_, endpoint := d.nextLookupdEndpoint()
 	d.log(LogLevelInfo, "querying nsqlookupd %s", endpoint)
 
 	var data lookupResp
-	err = apiRequestNegotiateV1("GET", endpoint, nil, &data)
+	err := apiRequestNegotiateV1("GET", endpoint, nil, &data)
 	if err != nil {
 		d.log(LogLevelError, "error querying nsqlookupd (%s) - %s", endpoint, err)
 		return
@@ -334,18 +362,9 @@ func (d *Driver) queryLookupd() {
 
 	var nsqdAddrs []string
 	for _, producer := range data.Producers {
-		// broadcastAddress := producer.BroadcastAddress
-		host, _, err := net.SplitHostPort(producer.RemoteAddress)
-		if err != nil {
-			d.log(LogLevelError, "error producer addr - %s", producer.RemoteAddress)
-			continue
-		}
-		switch host {
-		case "localhost", "127.0.0.1":
-			host = remote_addr
-		}
+		broadcastAddress := producer.BroadcastAddress
 		port := producer.TCPPort
-		joined := net.JoinHostPort(host, strconv.Itoa(port))
+		joined := net.JoinHostPort(broadcastAddress, strconv.Itoa(port))
 		nsqdAddrs = append(nsqdAddrs, joined)
 	}
 	// apply filter
@@ -361,7 +380,7 @@ func (d *Driver) updateConsumers(addrs []string) {
 	d.mtx.Lock()
 	defer d.mtx.Unlock()
 
-	if d.consumerConfig == nil {
+	if !d.consumerEnable {
 		return
 	}
 
@@ -409,7 +428,7 @@ func (d *Driver) updateProducers(addrs []string) {
 	d.mtx.Lock()
 	defer d.mtx.Unlock()
 
-	if d.producerConfig == nil {
+	if !d.producerEnable {
 		return
 	}
 
