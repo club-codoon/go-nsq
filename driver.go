@@ -351,7 +351,7 @@ func (d *Driver) nextLookupdEndpoint() (string, string) {
 // initiate a connection to any new producers that are identified.
 func (d *Driver) queryLookupd() {
 	_, endpoint := d.nextLookupdEndpoint()
-	d.log(LogLevelInfo, "querying nsqlookupd %s", endpoint)
+	// d.log(LogLevelInfo, "querying nsqlookupd %s", endpoint)
 
 	var data lookupResp
 	err := apiRequestNegotiateV1("GET", endpoint, nil, &data)
