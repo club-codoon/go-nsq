@@ -456,7 +456,7 @@ type peerInfo struct {
 func (r *Consumer) queryLookupd() {
 	endpoint := r.nextLookupdEndpoint()
 
-	r.log(LogLevelInfo, "querying nsqlookupd %s", endpoint)
+	// r.log(LogLevelInfo, "querying nsqlookupd %s", endpoint)
 
 	var data lookupResp
 	err := apiRequestNegotiateV1("GET", endpoint, nil, &data)
@@ -534,7 +534,7 @@ func (r *Consumer) ConnectToNSQD(addr string) error {
 	}
 	r.mtx.Unlock()
 
-	r.log(LogLevelInfo, "(%s) connecting to nsqd", addr)
+	// r.log(LogLevelInfo, "(%s) connecting to nsqd", addr)
 
 	cleanupConnection := func() {
 		r.mtx.Lock()
@@ -666,7 +666,7 @@ func (r *Consumer) onConnResponse(c *Conn, data []byte) {
 		// server is ready for us to close (it ack'd our StartClose)
 		// we can assume we will not receive any more messages over this channel
 		// (but we can still write back responses)
-		r.log(LogLevelInfo, "(%s) received CLOSE_WAIT from nsqd", c.String())
+		// r.log(LogLevelInfo, "(%s) received CLOSE_WAIT from nsqd", c.String())
 		c.Close()
 	}
 }
@@ -900,7 +900,7 @@ func (r *Consumer) rdyLoop() {
 
 exit:
 	redistributeTicker.Stop()
-	r.log(LogLevelInfo, "rdyLoop exiting")
+	// r.log(LogLevelInfo, "rdyLoop exiting")
 	r.wg.Done()
 }
 
